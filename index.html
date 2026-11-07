@@ -68,6 +68,24 @@ button:hover{background:#ddd}
 }
 #clearVideoOverlay.needsTap #clearVideoPlayButton{display:block}
 
+/* ゲーム設定 */
+#settingsOverlay{position:fixed;inset:0;z-index:220;display:none;align-items:center;justify-content:center;padding:14px;background:rgba(25,20,10,.68);backdrop-filter:blur(3px)}
+#settingsOverlay.show{display:flex}
+.settingsCard{width:min(480px,94vw);max-height:92vh;overflow:auto;padding:22px 20px;border:4px solid #68401d;border-radius:20px;background:linear-gradient(180deg,#fff9d8,#f0d5a4);box-shadow:0 16px 50px rgba(0,0,0,.4);color:#4d351d}
+.settingsTitle{text-align:center;font-size:26px;font-weight:1000;margin:0 0 18px}
+.settingsRow{margin:15px 0}
+.settingsRow label{display:block;font-weight:900;margin-bottom:7px}
+.settingsRow select{width:100%;min-height:44px;padding:8px 10px;border:2px solid #987044;border-radius:9px;background:#fff;font-size:16px;color:#332313}
+.settingsRow input[type=range]{width:100%;accent-color:#a94625}
+.settingsValue{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:800}
+.settingsToggle{display:flex!important;align-items:center;gap:10px;min-height:42px}
+.settingsToggle input{width:22px;height:22px;accent-color:#a94625}
+.vibrationTestButton{width:100%;min-height:46px;border:2px solid #68401d;border-radius:10px;background:#a94625;color:#fff;font-weight:900;font-size:16px}
+#vibrationTestResult{margin-top:8px;font-size:13px;font-weight:800;line-height:1.5}
+.settingsButtons{display:flex;gap:10px;margin-top:20px}
+.settingsButtons button{flex:1;min-height:46px;border:2px solid #68401d;border-radius:10px;font-weight:900;background:#fff0c2;color:#4d351d}
+@media(max-width:700px){.settingsCard{padding:19px 15px}.settingsTitle{font-size:23px}}
+
 /* Victory overlay */
 #victoryOverlay{
   position:fixed; inset:0; z-index:50;
@@ -667,6 +685,7 @@ canvas{
     <button id="resetButton">リセット</button>
     <button id="startScreenButton">スタート画面</button>
     <button id="clearRankingButton">ランキング消去</button>
+    <button id="settingsButton">設定</button>
 </div>
 
 <div id="message"></div>
@@ -714,9 +733,43 @@ canvas{
     <button id="startGameButton" class="startMainButton">ゲームスタート</button>
     <button id="versusModeButton" class="startRankingButton">対人モード</button>
     <button id="openRankingButton" class="startRankingButton">ランキングを見る</button>
+    <button id="startSettingsButton" class="startRankingButton">設定</button>
     <div class="startRankingBox">
       <div class="startRankingTitle">TOP 5</div>
       <div id="startRankingPreview"></div>
+    </div>
+  </div>
+</div>
+
+<div id="settingsOverlay" aria-hidden="true">
+  <div class="settingsCard">
+    <div class="settingsTitle">ゲーム設定</div>
+    <div class="settingsRow">
+      <label for="bgmTrackSelect">BGM（曲の選択）</label>
+      <select id="bgmTrackSelect">
+        <option value="off">OFF（再生しない）</option>
+        <option value="default">デフォルト</option>
+        <option value="kurosuke">くろすけのテーマ</option>
+        <option value="aruku">あるくよ、くろすけ</option>
+      </select>
+    </div>
+    <div class="settingsRow">
+      <div class="settingsValue"><label for="bgmVolume">BGM音量</label><span id="bgmVolumeValue">35%</span></div>
+      <input id="bgmVolume" type="range" min="0" max="100" value="35">
+    </div>
+    <div class="settingsRow">
+      <div class="settingsValue"><label for="seVolume">効果音音量</label><span id="seVolumeValue">100%</span></div>
+      <input id="seVolume" type="range" min="0" max="100" value="100">
+    </div>
+    <div class="settingsRow">
+      <label class="settingsToggle"><input id="vibrationEnabled" type="checkbox" checked> バイブレーションを使用する</label>
+    </div>
+    <div class="settingsRow">
+      <button id="vibrationTestButton" class="vibrationTestButton" type="button">振動テスト（3回）</button>
+      <div id="vibrationTestResult" role="status" aria-live="polite">ボタンを押して振動を確認できます。</div>
+    </div>
+    <div class="settingsButtons">
+      <button id="settingsCloseButton" type="button">閉じる</button>
     </div>
   </div>
 </div>
@@ -831,13 +884,111 @@ canvas{
    ============================================================ */
 let audioContext = null;
 let audioMasterGain = null;
+let bgmAudio = null;
+const BGM_TRACKS = {
+    default: "BGM/デフォルト.mp3",
+    kurosuke: "BGM/くろすけのテーマ.mp3",
+    aruku: "BGM/あるくよ、くろすけ.mp3"
+};
+const GAME_SETTINGS_KEY = "molkkyCrossGameSettings_v2";
+const OLD_GAME_SETTINGS_KEY = "molkkyCrossGameSettings_v1";
+let gameSettings = { bgmTrack: "off", bgmVolume: 35, seVolume: 100, vibration: true };
+loadGameSettings();
+
+function loadGameSettings(){
+    try{
+        let saved = JSON.parse(localStorage.getItem(GAME_SETTINGS_KEY) || "null");
+        if(!saved){
+            const old = JSON.parse(localStorage.getItem(OLD_GAME_SETTINGS_KEY) || "null");
+            if(old && typeof old === "object"){
+                saved = { ...old, bgmTrack: "off" };
+                localStorage.setItem(GAME_SETTINGS_KEY, JSON.stringify(saved));
+            }
+        }
+        if(saved && typeof saved === "object") gameSettings = { ...gameSettings, ...saved };
+    }catch(e){}
+    if(gameSettings.bgmTrack !== "off" && !BGM_TRACKS[gameSettings.bgmTrack]) gameSettings.bgmTrack = "off";
+    gameSettings.bgmVolume = Math.max(0, Math.min(100, Number(gameSettings.bgmVolume) || 0));
+    gameSettings.seVolume = Math.max(0, Math.min(100, Number(gameSettings.seVolume ?? 100)));
+    gameSettings.vibration = gameSettings.vibration !== false;
+}
+
+function saveGameSettings(){
+    try{ localStorage.setItem(GAME_SETTINGS_KEY, JSON.stringify(gameSettings)); }catch(e){}
+}
+
+function applyGameSettings(){
+    const track = document.getElementById("bgmTrackSelect");
+    const bgm = document.getElementById("bgmVolume");
+    const se = document.getElementById("seVolume");
+    const vibration = document.getElementById("vibrationEnabled");
+    if(track) track.value = gameSettings.bgmTrack;
+    if(bgm) bgm.value = String(gameSettings.bgmVolume);
+    if(se) se.value = String(gameSettings.seVolume);
+    if(vibration) vibration.checked = !!gameSettings.vibration;
+    const bv = document.getElementById("bgmVolumeValue");
+    const sv = document.getElementById("seVolumeValue");
+    if(bv) bv.textContent = gameSettings.bgmVolume + "%";
+    if(sv) sv.textContent = gameSettings.seVolume + "%";
+    if(bgmAudio) bgmAudio.volume = gameSettings.bgmVolume / 100;
+    if(audioMasterGain) audioMasterGain.gain.value = 1.7 * gameSettings.seVolume / 100;
+}
+
+function openGameSettings(){
+    applyGameSettings();
+    const overlay = document.getElementById("settingsOverlay");
+    overlay.classList.add("show");
+    overlay.setAttribute("aria-hidden", "false");
+}
+
+function closeGameSettings(){
+    const overlay = document.getElementById("settingsOverlay");
+    overlay.classList.remove("show");
+    overlay.setAttribute("aria-hidden", "true");
+}
+
+function initBgm(){
+    if(!bgmAudio){
+        bgmAudio = new Audio();
+        bgmAudio.loop = true;
+        bgmAudio.preload = "none";
+    }
+    bgmAudio.volume = gameSettings.bgmVolume / 100;
+    if(gameSettings.bgmTrack === "off"){ bgmAudio.pause(); bgmAudio.removeAttribute("src"); bgmAudio.dataset.track = "off"; return bgmAudio; }
+    const src = encodeURI(BGM_TRACKS[gameSettings.bgmTrack]);
+    if(bgmAudio.dataset.track !== gameSettings.bgmTrack){
+        bgmAudio.pause();
+        bgmAudio.src = src;
+        bgmAudio.dataset.track = gameSettings.bgmTrack;
+        bgmAudio.load();
+    }
+    return bgmAudio;
+}
+
+function startBgm(){
+    if(gameSettings.bgmTrack === "off" || gameSettings.bgmVolume <= 0){ stopBgm(); return; }
+    const audio = initBgm();
+    const promise = audio.play();
+    if(promise && typeof promise.catch === "function") promise.catch(()=>{});
+}
+
+function stopBgm(){
+    if(bgmAudio) bgmAudio.pause();
+}
+
+function changeBgmTrack(){
+    gameSettings.bgmTrack = document.getElementById("bgmTrackSelect").value;
+    saveGameSettings();
+    if(gameSettings.bgmTrack === "off") stopBgm();
+    else if(document.getElementById("startScreen").classList.contains("hide")) startBgm();
+}
 
 function initAudio(){
     try{
         if(!audioContext){
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             audioMasterGain = audioContext.createGain();
-            audioMasterGain.gain.value = 1.7;
+            audioMasterGain.gain.value = 1.7 * gameSettings.seVolume / 100;
             audioMasterGain.connect(audioContext.destination);
         }
         if(audioContext.state === "suspended") audioContext.resume();
@@ -1946,6 +2097,7 @@ function hideRankingOverlay(){
 }
 
 function showStartScreen(){
+    stopBgm();
     hideRankingOverlay();
     hideVictoryScreen();
     hideFailureScreen();
@@ -3727,8 +3879,9 @@ function hideMatchPointBanner(){
 }
 
 function vibrate(pattern){
+    if(!gameSettings.vibration) return;
     try{
-        if(navigator && typeof navigator.vibrate === "function") navigator.vibrate(pattern);
+        if(typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(pattern);
     }catch(e){}
 }
 
@@ -4059,6 +4212,7 @@ document.getElementById("vsTeamCount").addEventListener("change", initVersusTeam
 document.getElementById("vsSettingsBack").addEventListener("click", hideVersusSettings);
 document.getElementById("vsStartButton").addEventListener("click", () => {
     initAudio();
+    startBgm();
     startVersusGame();
 });
 document.getElementById("vsTurnStartButton").addEventListener("click", () => {
@@ -4073,6 +4227,7 @@ document.getElementById("vsFinalHomeButton").addEventListener("click", () => {
 
 document.getElementById("startGameButton").addEventListener("click", () => {
     initAudio();
+    startBgm();
     hideStartScreen();
     newGame();
 });
@@ -4080,6 +4235,54 @@ document.getElementById("startGameButton").addEventListener("click", () => {
 document.getElementById("openRankingButton").addEventListener("click", () => {
     initAudio();
     showRankingOverlay();
+});
+
+document.getElementById("settingsButton").addEventListener("click", openGameSettings);
+document.getElementById("startSettingsButton").addEventListener("click", openGameSettings);
+document.getElementById("settingsCloseButton").addEventListener("click", closeGameSettings);
+document.getElementById("vibrationTestButton").addEventListener("click", () => {
+    const result = document.getElementById("vibrationTestResult");
+    if(!gameSettings.vibration){
+        result.textContent = "バイブレーション設定がOFFです。チェックを入れてから試してください。";
+        return;
+    }
+    if(typeof navigator === "undefined" || typeof navigator.vibrate !== "function"){
+        result.textContent = "お使いの端末またはブラウザはバイブレーション機能に対応していません。";
+        return;
+    }
+    try{
+        const accepted = navigator.vibrate([180,120,180,120,280]);
+        result.textContent = accepted
+          ? "振動命令を送信しました。実際に振動しない場合、お使いの端末またはブラウザはバイブレーション機能に対応していない可能性があります。端末の設定も確認してください。"
+          : "お使いの端末またはブラウザはバイブレーション機能に対応していません。";
+    }catch(e){
+        result.textContent = "お使いの端末またはブラウザはバイブレーション機能に対応していません。";
+    }
+});
+document.getElementById("settingsOverlay").addEventListener("click", event => {
+    if(event.target.id === "settingsOverlay") closeGameSettings();
+});
+document.getElementById("bgmTrackSelect").addEventListener("change", changeBgmTrack);
+document.getElementById("bgmVolume").addEventListener("input", event => {
+    gameSettings.bgmVolume = Number(event.target.value);
+    document.getElementById("bgmVolumeValue").textContent = gameSettings.bgmVolume + "%";
+    if(bgmAudio) bgmAudio.volume = gameSettings.bgmVolume / 100;
+    if(gameSettings.bgmVolume === 0 && bgmAudio) bgmAudio.pause();
+    else if(gameSettings.bgmVolume > 0 && document.getElementById("startScreen").classList.contains("hide")) startBgm();
+    saveGameSettings();
+});
+document.getElementById("seVolume").addEventListener("input", event => {
+    gameSettings.seVolume = Number(event.target.value);
+    document.getElementById("seVolumeValue").textContent = gameSettings.seVolume + "%";
+    if(audioMasterGain) audioMasterGain.gain.value = 1.7 * gameSettings.seVolume / 100;
+    saveGameSettings();
+});
+document.getElementById("vibrationEnabled").addEventListener("change", event => {
+    gameSettings.vibration = !!event.target.checked;
+    if(!gameSettings.vibration){
+        try{ if(typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(0); }catch(e){}
+    }
+    saveGameSettings();
 });
 
 document.getElementById("startScreenButton").addEventListener("click", () => {
@@ -4215,6 +4418,7 @@ document.getElementById("failureRetryButton").addEventListener("click", () => {
    ============================================================ */
 
 loadRanking();
+applyGameSettings();
 
 createPins();
 
